@@ -1,7 +1,5 @@
 #!/usr/bin/python
-import os
 import sys
-import codecs
 import utils
 import numpy as np
 from math import log
@@ -16,17 +14,22 @@ def get_posterior_distribution_for_trg_token(trg_index, src_tokens, trg_tokens,
     # marginal_prob = p(f_j|e)
     # posterior_probs[i] = p(a_j = i|f_j, e)
     trg_token = trg_tokens[trg_index]
-
+    src_length, trg_length = len(src_tokens), len(trg_tokens)
     posterior_probs_unnorm = np.array([
+        prior_model.get_prior_prob(src_index, trg_index,
+                                   src_length, trg_length) *
         translation_model.get_conditional_prob(src_token, trg_token)
-        for src_token in src_tokens])
+        for src_index, src_token in enumerate(src_tokens)])
 
     posterior_probs = posterior_probs_unnorm / sum(posterior_probs_unnorm)
 
-    marginal_prob = sum(posterior_probs[i] *
+    marginal_prob = sum(posterior_probs[src_index] * log(max(
                         translation_model.get_conditional_prob(
-                            src_token, trg_token)
-                        for i, src_token in enumerate(src_tokens))
+                            src_token, trg_token) *
+                        prior_model.get_prior_prob(src_index, trg_index,
+                                                   src_length, trg_length),
+                        0.1))
+                        for src_index, src_token in enumerate(src_tokens))
 
     return marginal_prob, posterior_probs
 
@@ -45,8 +48,7 @@ def get_posterior_alignment_matrix(src_tokens, trg_tokens,
         prob, posterior_matrix[j] = get_posterior_distribution_for_trg_token(
             j, src_tokens, trg_tokens, prior_model, translation_model)
 
-        sentence_marginal_log_likelihood += log(prob)
-        assert prob <= 1, "%f" % prob
+        sentence_marginal_log_likelihood += prob
 
     return sentence_marginal_log_likelihood, posterior_matrix
 
@@ -65,6 +67,8 @@ def collect_expected_statistics(src_corpus, trg_corpus, prior_model,
         corpus_marginal_log_likelihood += likelihood
         translation_model.collect_statistics(src_tokens, trg_tokens,
                                              posterior_matrix)
+        prior_model.collect_statistics(len(src_tokens), len(trg_tokens),
+                                       posterior_matrix)
 
     return corpus_marginal_log_likelihood
 
